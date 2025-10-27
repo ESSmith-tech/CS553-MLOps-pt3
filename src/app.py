@@ -1,4 +1,5 @@
 import os, sys
+from prometheus_client import start_http_server
 
 
 # Add the src directory to Python path to ensure imports work
@@ -38,5 +39,8 @@ class ChatApp:
         self.demo.launch(**kwargs)
 
 if __name__ == "__main__":
+    # Start Prometheus metrics server on port 8000
+    start_http_server(8000)
+    # Start the chat application
     app = ChatApp()
     app.launch()

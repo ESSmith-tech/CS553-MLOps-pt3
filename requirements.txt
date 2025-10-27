@@ -83,3 +83,4 @@ tzdata==2025.2
 urllib3==2.5.0
 uvicorn==0.37.0
 Websockets==15.0.1 
+prometheus_client==0.16.*

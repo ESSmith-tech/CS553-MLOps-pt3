@@ -1,0 +1,105 @@
+name: Heartbeat Monitor
+
+on:
+  #repository_dispatch:
+   # types: [heartbeat]
+  workflow_dispatch:
+  
+#  schedule:
+ #   - cron: "*/5 * * * *"  # workflow checks every 5 minutes
+
+permissions:
+  contents: write  # needed to commit .last_heartbeat
+
+jobs:
+  record_heartbeat:
+    if: github.event_name == 'repository_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      hb_time: ${{ steps.update_hb.outputs.hb_time }}
+      hb_host: ${{ steps.update_hb.outputs.hb_host }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Update heartbeat file
+        id: update_hb
+        run: |
+          TIMESTAMP="${{ github.event.client_payload.timestamp }}"
+          HOSTNAME="${{ github.event.client_payload.hostname }}"
+
+          # Write heartbeat to .last_heartbeat
+          echo "$TIMESTAMP,$HOSTNAME" > .last_heartbeat
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .last_heartbeat
+          git commit -m "Update heartbeat at $TIMESTAMP from $HOSTNAME" || echo "No changes to commit"
+          git push
+
+          echo "hb_time=$TIMESTAMP" >> $GITHUB_OUTPUT
+          echo "hb_host=$HOSTNAME" >> $GITHUB_OUTPUT
+
+      - name: Send alive notification
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          curl -X POST -H "Content-Type: application/json" \
+          -d "{\"content\": \"VM is still alive as of: ${TIMESTAMP}\"}" \
+          $DISCORD_WEBHOOK_URL
+
+  check_heartbeat:
+    needs: record_heartbeat
+    runs-on: ubuntu-latest
+    outputs:
+      stale: ${{ steps.compare.outputs.stale }}
+      hb_host: ${{ needs.record_heartbeat.outputs.hb_host }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Read last heartbeat
+        id: read_hb
+        run: |
+          if [ ! -f .last_heartbeat ]; then
+            echo "hb_time=0" >> $GITHUB_OUTPUT
+            echo "hb_host=unknown" >> $GITHUB_OUTPUT
+          else
+            IFS=',' read -r hb_time hb_host < .last_heartbeat
+            echo "hb_time=$hb_time" >> $GITHUB_OUTPUT
+            echo "hb_host=$hb_host" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Compare timestamps
+        id: compare
+        run: |
+          now=$(date +%s)
+          hb_time=${{ steps.read_hb.outputs.hb_time }}
+          hb_host=${{ steps.read_hb.outputs.hb_host }}
+
+          if [ "$hb_time" -eq 0 ]; then
+            echo "stale=true" >> $GITHUB_OUTPUT
+          else
+            diff=$((now - hb_time))
+            echo "Last heartbeat from $hb_host was $diff seconds ago"
+            if [ $diff -gt 180 ]; then  # 3-minute threshold
+              echo "stale=true" >> $GITHUB_OUTPUT
+            else
+              echo "stale=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  alert_failure:
+    needs: check_heartbeat
+    if: needs.check_heartbeat.outputs.stale == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send SSH Failure Discord notification
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          curl -X POST -H "Content-Type: application/json" \
+          -d "{\"content\": \"I sense a great disturbance in the Lego Force...\n\n The machine has died as of ${TIMESTAMP}! SSH connection failed to ${{ needs.check_heartbeat.outputs.hb_host }}.\n\n Initiating recovery...\"}" \
+          $DISCORD_WEBHOOK_URL

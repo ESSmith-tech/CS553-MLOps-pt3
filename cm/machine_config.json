@@ -1,0 +1,18 @@
+{
+  "vm_setup": { 
+    "msg": "THIS IS JUST DUMMY VALUES, REPLACE WITH YOURS",
+    "python_version": "3.8",
+    "packages": [
+      "git",
+      "python3-venv",
+      "python3-pip"
+    ],
+    "firewall_rules": [
+      {
+        "port": 22005,
+        "protocol": "tcp",
+        "action": "allow"
+      }
+    ]
+  }
+}

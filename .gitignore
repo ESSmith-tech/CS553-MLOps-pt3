@@ -1,1 +1,14 @@
-# Hello world
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.log
+*.env
+*.vscode/
+*.qodo
+images/
+*.jpg
+*.jpeg
+*.png

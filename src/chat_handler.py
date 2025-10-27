@@ -4,6 +4,38 @@ from typing import List, Dict, Generator, Optional, Any
 import gradio as gr
 from model_manager import ModelManager
 import time, os, datetime
+from prometheus_client import Counter, Summary
+
+# Prometheus metrics definitions
+REQUEST_COUNTER = Counter('app_requests_total', 'Total number of requests')
+SUCCESSFUL_REQUESTS = Counter('app_successful_requests_total', 'Total number of successful requests')
+FAILED_REQUESTS = Counter('app_failed_requests_total', 'Total number of failed requests')
+REQUEST_DURATION = Summary('app_request_duration_seconds', 'Time spent processing request')
+
+# Counter labeled by philosopher name to track which philosopher is being requested
+PHILOSOPHER_COUNTER = Counter(
+    'app_philosopher_requests_total',
+    'Total number of requests per philosopher',
+    ['philosopher']
+)
+
+# Counter for number of requests served by local model
+LOCAL_MODEL_REQUESTS = Counter(
+    'app_local_model_requests_total',
+    'Total number of requests handled by the local model'
+)
+
+# Counter for number of requests served by API model
+API_MODEL_REQUESTS = Counter(
+    'app_api_model_requests_total',
+    'Total number of requests handled by the API model'
+)
+
+# Summary for time taken to generate a response from local model
+LOCAL_MODEL_REQUEST_DURATION = Summary(
+    'app_local_model_request_duration_seconds',
+    'Time spent generating responses from the local model'
+)
 
 # Completly generated using GitHub Copilot
 def timing_decorator(func):
@@ -11,6 +43,7 @@ def timing_decorator(func):
         start = time.time()
         start_dt = datetime.datetime.now()
         print(f"[TIMING] {func.__name__} invoked at: {start_dt.strftime('%Y-%m-%d %H:%M:%S.%f')}")
+        result = None
         try:
             result = func(*args, **kwargs)
             if hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict)):
@@ -29,7 +62,8 @@ def timing_decorator(func):
             else:
                 return result
         finally:
-            if not (hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict))):
+            # Only log here for non-generator results and when result was assigned
+            if result is not None and not (hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict))):
                 end = time.time()
                 end_dt = datetime.datetime.now()
                 elapsed = end - start
@@ -93,10 +127,35 @@ class ChatHandler:
             system_prompt = prompts[selected_philosopher].get("introduction", "")
         messages = self.build_messages(message, history, system_prompt)
 
+        # Start metrics for this request
+        REQUEST_COUNTER.inc()
+        if selected_philosopher:
+            try:
+                PHILOSOPHER_COUNTER.labels(philosopher=selected_philosopher).inc()
+            except Exception:
+                # Labels may fail if invalid; ignore metric failure
+                pass
+
+        # Increment local/api specific counters
         if use_local_model:
-            yield from self._handle_local_model(messages, max_tokens, temperature, top_p)
+            LOCAL_MODEL_REQUESTS.inc()
+            gen = self._handle_local_model(messages, max_tokens, temperature, top_p)
         else:
-            yield from self._handle_api_model(messages, max_tokens, temperature, top_p, hf_token)
+            API_MODEL_REQUESTS.inc()
+            gen = self._handle_api_model(messages, max_tokens, temperature, top_p, hf_token)
+
+        # Wrap generation with overall request duration and success/failure counters
+        def wrapped_gen():
+            with REQUEST_DURATION.time():
+                try:
+                    for chunk in gen:
+                        yield chunk
+                    SUCCESSFUL_REQUESTS.inc()
+                except Exception:
+                    FAILED_REQUESTS.inc()
+                    raise
+
+        return wrapped_gen()
     
     @timing_decorator
     def _handle_local_model(self, messages: List[Dict[str, str]], max_tokens: int, 
@@ -125,12 +184,15 @@ class ChatHandler:
             yield self.config["messages"]["model_load_failed"]
             return
         try:
-            yield from local_model.generate(
-                messages, 
-                max_tokens=max_tokens, 
-                temperature=temperature, 
-                top_p=top_p
-            )
+            # Time only the local model generation (not the loading messages)
+            with LOCAL_MODEL_REQUEST_DURATION.time():
+                for token in local_model.generate(
+                    messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                ):
+                    yield token
         except Exception as e:
             yield f"Error generating response: {str(e)}"
     

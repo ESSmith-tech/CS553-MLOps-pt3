@@ -5,20 +5,33 @@ from PIL import Image
 class UIImageScraper:
     """A class for downloading and processing images based on configuration file."""
     
-    def __init__(self, config_path="../cm/ui_scraper_config.json", output_dir=None):
+    def __init__(self, config_path=None, output_dir=None):
         """
         Initialize the UIImageScraper with configuration.
         
         Args:
-            config_path (str): Path to the configuration JSON file
+            config_path (str): Path to the configuration JSON file. If None, will
+                               resolve to ../cm/ui_scraper_config.json relative
+                               to this module file.
             output_dir (str): Optional override for output directory
         """
+        # If no config_path provided, resolve it relative to this file so it
+        # works regardless of current working directory.
+        if config_path is None:
+            here = os.path.dirname(os.path.abspath(__file__))
+            config_path = os.path.abspath(os.path.join(here, '..', 'cm', 'ui_scraper_config.json'))
+
         self.config_path = config_path
         self.output_dir_override = output_dir
         self.config = self._load_config()
     
     def _load_config(self):
         """Load configuration from JSON file."""
+        if not os.path.exists(self.config_path):
+            raise FileNotFoundError(
+                f"Config not found at {self.config_path}. "
+                "Ensure the file exists in the container and was copied into the image."
+            )
         with open(self.config_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     
@@ -83,5 +96,6 @@ class UIImageScraper:
 
 if __name__ == "__main__":
     scraper = UIImageScraper()
+    print(f"Using config: {scraper.config_path}")
     scraper.download_images_to_local()
     print("\nAll images processed!")

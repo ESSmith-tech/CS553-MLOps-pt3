@@ -144,18 +144,25 @@ class ChatHandler:
             API_MODEL_REQUESTS.inc()
             gen = self._handle_api_model(messages, max_tokens, temperature, top_p, hf_token)
 
-        # Wrap generation with overall request duration and success/failure counters
-        def wrapped_gen():
-            with REQUEST_DURATION.time():
-                try:
-                    for chunk in gen:
-                        yield chunk
-                    SUCCESSFUL_REQUESTS.inc()
-                except Exception:
-                    FAILED_REQUESTS.inc()
-                    raise
+        # Consume the generator and return a final string to Gradio
+        # Gradio's ChatInterface expects a message-like object (not a raw generator)
+        full_response = ""
+        with REQUEST_DURATION.time():
+            try:
+                for chunk in gen:
+                    # Append chunk to the accumulating response. Generators may
+                    # yield incremental strings or cumulative text; append whatever
+                    # is produced.
+                    if isinstance(chunk, str):
+                        full_response += chunk
+                    else:
+                        full_response += str(chunk)
+                SUCCESSFUL_REQUESTS.inc()
+            except Exception:
+                FAILED_REQUESTS.inc()
+                raise
 
-        return wrapped_gen()
+        return full_response
     
     @timing_decorator
     def _handle_local_model(self, messages: List[Dict[str, str]], max_tokens: int, 

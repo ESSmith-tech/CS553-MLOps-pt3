@@ -3,8 +3,7 @@
     "value": "<span style='color: white; font-size: 30px'>Choose your Philosopher</span>"
   },
   "model": {
-    "old_local_model_name": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
-    "local_model_name": "microsoft/Phi-3-mini-4k-instruct",
+    "local_model_name": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
     "api_model_name": "openai/gpt-oss-20b"
   },
   "defaults": {

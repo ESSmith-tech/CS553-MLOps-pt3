@@ -129,9 +129,11 @@ class ChatHandler:
 
         # Start metrics for this request
         REQUEST_COUNTER.inc()
+        print(f"[REQUEST] Philosopher: {selected_philosopher}, Local Model: {use_local_model}")
         if selected_philosopher:
             try:
                 PHILOSOPHER_COUNTER.labels(philosopher=selected_philosopher).inc()
+                print(f"[METRICS] Incremented philosopher counter for: {selected_philosopher}")
             except Exception:
                 # Labels may fail if invalid; ignore metric failure
                 pass
@@ -139,15 +141,18 @@ class ChatHandler:
         # Increment local/api specific counters
         if use_local_model:
             LOCAL_MODEL_REQUESTS.inc()
+            print("[METRICS] Incremented local model request counter")
             gen = self._handle_local_model(messages, max_tokens, temperature, top_p)
         else:
             API_MODEL_REQUESTS.inc()
+            print("[METRICS] Incremented API model request counter")
             gen = self._handle_api_model(messages, max_tokens, temperature, top_p, hf_token)
 
         # Consume the generator and return a final string to Gradio
         # Gradio's ChatInterface expects a message-like object (not a raw generator)
         full_response = ""
         with REQUEST_DURATION.time():
+            print("[METRICS] Timing total request duration")
             try:
                 for chunk in gen:
                     # Append chunk to the accumulating response. Generators may
@@ -158,8 +163,10 @@ class ChatHandler:
                     else:
                         full_response += str(chunk)
                 SUCCESSFUL_REQUESTS.inc()
+                print("[METRICS] Incremented successful request counter")
             except Exception:
                 FAILED_REQUESTS.inc()
+                print("[METRICS] Incremented failed request counter")
                 raise
 
         return full_response
@@ -193,6 +200,7 @@ class ChatHandler:
         try:
             # Time only the local model generation (not the loading messages)
             with LOCAL_MODEL_REQUEST_DURATION.time():
+                print("[METRICS] Timing local model request duration")
                 for token in local_model.generate(
                     messages,
                     max_tokens=max_tokens,

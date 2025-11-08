@@ -108,8 +108,11 @@ class APIModel(ModelInterface):
             token = ""
             if len(choices) and choices[0].delta.content:
                 token = choices[0].delta.content
-            response += token
-            yield response
+            # The client yields incremental deltas. Yield the delta token
+            # directly (not the cumulative response) so callers can append
+            # fragments without duplicating prefixes.
+            if token:
+                yield token
 
 class ModelManager:
     """Manages model loading and message queuing"""
